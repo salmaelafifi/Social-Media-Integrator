@@ -1,137 +1,231 @@
-// Load environment variables from .env
-require('dotenv').config();
-
+// server.js
 const express = require('express');
-const session = require('express-session');
 const cors = require('cors');
+const dotenv = require('dotenv');
+const session = require('express-session');
+const axios = require('axios');
+const crypto = require('crypto');
+
+dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-// Allow frontend (later) to call the backend from another port (e.g. Vite/React)
+// --- middlewares ---
 app.use(cors({
-  origin: 'http://localhost:5173', // change later if your frontend runs on another port
-  credentials: true
+  origin: 'http://localhost:3000',
+  credentials: true,
 }));
-
-// Parse JSON bodies
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Session setup (to remember logged-in users)
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'dev-secret-fallback',
+  secret: process.env.SESSION_SECRET || 'dev-secret',
   resave: false,
-  saveUninitialized: false
+  saveUninitialized: false,
 }));
 
-// ---------- TEST ROUTE ----------
+// ===== DEMO USER STORE =====
+let users = []; // { id, email, password }
+
+// Home
 app.get('/', (req, res) => {
-  res.send('<h1>Backend is running ✅</h1><p>Try <a href="/auth/pinterest">Login with Pinterest</a></p>');
+  res.send('Backend is running. Use /auth/register, /auth/login, /auth/x/start, /api/x/me');
 });
 
-// ---------- AUTH STEP 1: Redirect to Pinterest ----------
-app.get('/auth/pinterest', (req, res) => {
-  const state = Math.random().toString(36).substring(2);
-  req.session.oauthState = state;
+// ----- Local auth -----
+app.post('/auth/register', (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'email and password required' });
+  }
+  if (users.find(u => u.email === email)) {
+    return res.status(400).json({ error: 'email already registered' });
+  }
+  const user = { id: users.length + 1, email, password }; // plain text for demo only
+  users.push(user);
+  req.session.userId = user.id;
+  res.json({ message: 'registered', user: { id: user.id, email: user.email } });
+});
 
-  const params = new URLSearchParams({
-    client_id: process.env.PINTEREST_CLIENT_ID || '',
-    redirect_uri: process.env.PINTEREST_REDIRECT_URI || '',
-    response_type: 'code',
-    scope: 'boards:read,pins:read,user_accounts:read',
-    state
+app.post('/auth/login', (req, res) => {
+  const { email, password } = req.body;
+  const user = users.find(u => u.email === email && u.password === password);
+  if (!user) {
+    return res.status(401).json({ error: 'invalid credentials' });
+  }
+  req.session.userId = user.id;
+  res.json({ message: 'logged in', user: { id: user.id, email: user.email } });
+});
+
+app.post('/auth/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.json({ message: 'logged out' });
   });
-
-  const authUrl = `https://www.pinterest.com/oauth/?${params.toString()}`;
-  res.redirect(authUrl);
 });
 
-// ---------- AUTH STEP 2: Callback from Pinterest ----------
-app.get('/auth/pinterest/callback', async (req, res) => {
+app.get('/me', (req, res) => {
+  const user = users.find(u => u.id === req.session.userId);
+  if (!user) return res.status(401).json({ error: 'not logged in' });
+  res.json({ id: user.id, email: user.email });
+});
+
+// ===== X OAuth 2.0 (PKCE) =====
+const xPendingAuth = {}; // state -> { codeVerifier }
+let xTokens = null;      // last tokens (demo)
+
+function createCodeVerifier() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function createCodeChallenge(verifier) {
+  const hash = crypto.createHash('sha256').update(verifier).digest();
+  return hash
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+// 1) Start login with X
+app.get('/auth/x/start', (req, res) => {
+  const state = crypto.randomBytes(16).toString('hex');
+  const codeVerifier = createCodeVerifier();
+  const codeChallenge = createCodeChallenge(codeVerifier);
+
+  xPendingAuth[state] = { codeVerifier };
+
+  const authUrl = new URL('https://x.com/i/oauth2/authorize');
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('client_id', process.env.X_CLIENT_ID);
+  authUrl.searchParams.set('redirect_uri', process.env.X_REDIRECT_URI);
+  authUrl.searchParams.set('scope', process.env.X_SCOPES);
+  authUrl.searchParams.set('state', state);
+  authUrl.searchParams.set('code_challenge', codeChallenge);
+  authUrl.searchParams.set('code_challenge_method', 'S256');
+
+  res.redirect(authUrl.toString());
+});
+
+// 2) Callback from X
+app.get('/auth/x/callback', async (req, res) => {
+  const { code, state } = req.query;
+
+  if (!code || !state) {
+    return res.status(400).send('Missing code or state');
+  }
+
+  const saved = xPendingAuth[state];
+  if (!saved) {
+    return res.status(400).send('Unknown or expired state');
+  }
+  delete xPendingAuth[state];
+
   try {
-    const { code, state } = req.query;
-
-    if (!code || state !== req.session.oauthState) {
-      return res.status(400).send('Invalid state or missing code');
-    }
-
     const body = new URLSearchParams({
       grant_type: 'authorization_code',
       code: code.toString(),
-      redirect_uri: process.env.PINTEREST_REDIRECT_URI || '',
-      client_id: process.env.PINTEREST_CLIENT_ID || '',
-      client_secret: process.env.PINTEREST_CLIENT_SECRET || ''
+      redirect_uri: process.env.X_REDIRECT_URI,
+      client_id: process.env.X_CLIENT_ID,
+      code_verifier: saved.codeVerifier,
     });
 
-    const tokenRes = await fetch('https://api.pinterest.com/v5/oauth/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body
-    });
+    const tokenResp = await axios.post(
+      'https://api.x.com/2/oauth2/token',
+      body.toString(),
+      {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Authorization:
+            'Basic ' +
+            Buffer.from(
+              `${process.env.X_CLIENT_ID}:${process.env.X_CLIENT_SECRET}`
+            ).toString('base64'),
+        },
+      }
+    );
 
-    const tokenData = await tokenRes.json();
+    xTokens = tokenResp.data;
 
-    if (!tokenRes.ok) {
-      console.error('Token error:', tokenData);
-      return res.status(500).send('Error getting Pinterest token');
-    }
-
-    // Store token in session
-    req.session.pinterest = {
-      accessToken: tokenData.access_token,
-      refreshToken: tokenData.refresh_token,
-      expiresIn: tokenData.expires_in
-    };
-
-    res.send('<h2>Logged in with Pinterest ✅</h2><p>You can now call <code>/api/me</code> or <code>/api/pinterest/feed</code>.</p>');
+    res.send(
+      `<h2>X login successful ✅</h2>
+       <p>Now call <code>/api/x/me</code> from Thunder Client.</p>`
+    );
   } catch (err) {
-    console.error(err);
-    res.status(500).send('Server error during Pinterest callback');
+    console.error('Error exchanging code:', err.response?.data || err.message);
+    res.status(500).send('Error getting X access token. Check server logs.');
   }
 });
 
-// ---------- SMALL APIS FOR YOUR TEAM ----------
-
-// Is the user authenticated?
-app.get('/api/me', (req, res) => {
-  if (!req.session.pinterest) {
-    return res.json({ authenticated: false });
-  }
-  res.json({ authenticated: true });
-});
-
-// Example Pinterest data endpoint
-app.get('/api/pinterest/feed', async (req, res) => {
-  if (!req.session.pinterest?.accessToken) {
-    return res.status(401).json({ error: 'Not logged in with Pinterest' });
+// 3) Test route to get current X user
+app.get('/api/x/me', async (req, res) => {
+  if (!xTokens || !xTokens.access_token) {
+    return res.status(401).json({ error: 'Not connected to X yet' });
   }
 
   try {
-    const userRes = await fetch('https://api.pinterest.com/v5/user_account', {
-      headers: {
-        Authorization: `Bearer ${req.session.pinterest.accessToken}`
-      }
+    const resp = await axios.get('https://api.x.com/2/users/me', {
+      headers: { Authorization: `Bearer ${xTokens.access_token}` },
     });
-
-    const userData = await userRes.json();
-
-    res.json({
-      user: userData
-      // later: boards, pins, combined feed
-    });
+    res.json(resp.data);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch Pinterest data' });
+    console.error('Error calling X API:', err.response?.data || err.message);
+    res.status(500).json({ error: 'Error calling X API' });
   }
 });
 
-// Logout
-app.get('/auth/logout', (req, res) => {
-  req.session.destroy(() => {
-    res.send('Logged out ✅');
-  });
+// 4) Get recent posts (tweets) from the connected X user
+app.get('/api/x/posts', async (req, res) => {
+  // Make sure we actually have tokens from X login
+  if (!xTokens || !xTokens.access_token) {
+    return res.status(401).json({ error: 'Not connected to X yet' });
+  }
+
+  try {
+    // 1st call: get current user to know their id
+    const meResp = await axios.get('https://api.x.com/2/users/me', {
+      headers: {
+        Authorization: `Bearer ${xTokens.access_token}`,
+      },
+    });
+
+    const userId = meResp.data?.data?.id;
+    if (!userId) {
+      return res.status(500).json({ error: 'Could not find X user id' });
+    }
+
+    // 2nd call: get that user's recent tweets/posts
+    const postsResp = await axios.get(
+      `https://api.x.com/2/users/${userId}/tweets`,
+      {
+        headers: {
+          Authorization: `Bearer ${xTokens.access_token}`,
+        },
+        params: {
+          max_results: 10, // how many posts you want
+          'tweet.fields': 'created_at,text,public_metrics',
+        },
+      }
+    );
+
+    // Send posts back to frontend
+    res.json(postsResp.data);
+  } catch (err) {
+    console.error(
+      'Error fetching X posts:',
+      err.response?.status,
+      err.response?.data || err.message
+    );
+    res.status(500).json({
+      error: 'Error fetching X posts from X API',
+      details: err.response?.data || err.message, // TEMP: helpful for debugging
+    });
+  }
 });
 
+
+
+// ---- start server ----
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
 });
