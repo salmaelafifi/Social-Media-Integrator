@@ -8,12 +8,19 @@ const crypto = require('crypto');
 
 dotenv.config();
 
+require('dotenv').config();
+
+const TUMBLR_CONSUMER_KEY = process.env.TUMBLR_CONSUMER_KEY;
+const TUMBLR_CONSUMER_SECRET = process.env.TUMBLR_CONSUMER_SECRET;
+const TUMBLR_CALLBACK_URL = process.env.TUMBLR_CALLBACK_URL;
+
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // --- middlewares ---
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: 'http://localhost:3001',
   credentials: true,
 }));
 app.use(express.json());
@@ -223,6 +230,125 @@ app.get('/api/x/posts', async (req, res) => {
   }
 });
 
+
+
+
+const OAuth = require('oauth').OAuth;
+const tumblr = require('tumblr.js');
+
+
+// Create OAuth client for Tumblr
+const tumblrOAuth = new OAuth(
+  'https://www.tumblr.com/oauth/request_token',
+  'https://www.tumblr.com/oauth/access_token',
+  TUMBLR_CONSUMER_KEY,
+  TUMBLR_CONSUMER_SECRET,
+  '1.0A',
+  TUMBLR_CALLBACK_URL,
+  'HMAC-SHA1'
+);
+
+// 1) Start Tumblr auth
+app.get('/auth/tumblr/start', (req, res) => {
+  tumblrOAuth.getOAuthRequestToken((err, oauthToken, oauthTokenSecret) => {
+    if (err) {
+      console.error('Error getting Tumblr request token:', err);
+      return res.status(500).send('Error starting Tumblr auth');
+    }
+
+    // Save temporary tokens in session
+    req.session.tumblrRequestToken = oauthToken;
+    req.session.tumblrRequestTokenSecret = oauthTokenSecret;
+
+    // Redirect user to Tumblr authorization page
+    const authUrl = `https://www.tumblr.com/oauth/authorize?oauth_token=${oauthToken}`;
+    res.redirect(authUrl);
+  });
+});
+
+// 2) Tumblr callback
+app.get('/auth/tumblr/callback', (req, res) => {
+  const { oauth_verifier, oauth_token } = req.query;
+
+  const requestToken = req.session.tumblrRequestToken;
+  const requestTokenSecret = req.session.tumblrRequestTokenSecret;
+
+  if (!requestToken || !requestTokenSecret) {
+    return res.status(400).send('Missing Tumblr request token in session');
+  }
+
+  tumblrOAuth.getOAuthAccessToken(
+    oauth_token,
+    requestTokenSecret,
+    oauth_verifier,
+    (err, accessToken, accessTokenSecret) => {
+      if (err) {
+        console.error('Error getting Tumblr access token:', err);
+        return res.status(500).send('Error completing Tumblr auth');
+      }
+
+      // Store final access token in session so you can call Tumblr API later
+      req.session.tumblr = {
+        accessToken,
+        accessTokenSecret
+      };
+
+      // Redirect back to frontend (adjust URL if your frontend runs elsewhere)
+      res.redirect('http://localhost:3001/dashboard');
+    }
+  );
+});
+
+// 3) Get Tumblr posts from the user's primary blog
+app.get('/api/tumblr/posts', async (req, res) => {
+  const tumblrSession = req.session.tumblr;
+  if (!tumblrSession) {
+    return res.status(401).json({ error: 'Not connected to Tumblr' });
+  }
+
+  // Create Tumblr client with user access token
+  const client = tumblr.createClient({
+    consumer_key: TUMBLR_CONSUMER_KEY,
+    consumer_secret: TUMBLR_CONSUMER_SECRET,
+    token: tumblrSession.accessToken,
+    token_secret: tumblrSession.accessTokenSecret,
+    returnPromises: true, // so we can use async/await
+  });
+
+  try {
+    // 1) Get info about the authenticated user (their blogs)
+    const userInfo = await client.userInfo();
+    const blogs = userInfo.user.blogs || [];
+
+    if (blogs.length === 0) {
+      return res.status(404).json({ error: 'No blogs found for this Tumblr user' });
+    }
+
+    // Pick primary blog if available, otherwise first blog
+    const primaryBlog =
+      blogs.find((b) => b.primary) || blogs[0];
+
+    const blogName = primaryBlog.name; // e.g. "myblog"
+
+    // 2) Get recent posts from that blog
+    const postsResp = await client.blogPosts(blogName, {
+      limit: 10, // how many posts you want
+    });
+
+    // Send posts to frontend
+    res.json({
+      blog: {
+        name: primaryBlog.name,
+        title: primaryBlog.title,
+        url: primaryBlog.url,
+      },
+      posts: postsResp.posts || [],
+    });
+  } catch (err) {
+    console.error('Error fetching Tumblr posts:', err);
+    res.status(500).json({ error: 'Error fetching Tumblr posts' });
+  }
+});
 
 
 // ---- start server ----
