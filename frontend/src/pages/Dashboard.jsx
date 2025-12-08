@@ -1,157 +1,165 @@
+// frontend/src/pages/Dashboard.jsx
 import React, { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
 import { getXUser, getXPosts, getTumblrPosts } from '../services/api';
-import TumblrConnectButton from '../components/TumblrConnectButton';
 
 export default function Dashboard() {
   const [xUser, setXUser] = useState(null);
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [xPosts, setXPosts] = useState([]);
+  const [xLoading, setXLoading] = useState(false);
+  const [xError, setXError] = useState(null);
 
   const [tumblrBlog, setTumblrBlog] = useState(null);
   const [tumblrPosts, setTumblrPosts] = useState([]);
+  const [tumblrLoading, setTumblrLoading] = useState(true);
   const [tumblrError, setTumblrError] = useState(null);
 
+  // --- Fetch X/Twitter data ---
   const fetchXData = async () => {
+    setXLoading(true);
+    setXError(null);
+
     try {
       const userRes = await getXUser();
       setXUser(userRes.data.data);
 
       const postsRes = await getXPosts();
-      setPosts(postsRes.data.data || []);
+      setXPosts(postsRes.data.posts || []);
     } catch (err) {
-      setXUser(null);
-      setPosts([]);
+      console.error('Error fetching X data:', err);
+      if (err.response?.status === 429) {
+        setXError('X API rate limit exceeded. Try again later.');
+      } else if (err.response?.status === 401) {
+        setXUser(null);
+        setXPosts([]);
+      } else {
+        setXError('Error fetching X data');
+      }
     } finally {
-      setLoading(false);
+      setXLoading(false);
     }
   };
 
+  // --- Fetch Tumblr data ---
   const fetchTumblrData = async () => {
+    setTumblrLoading(true);
+    setTumblrError(null);
+
     try {
       const res = await getTumblrPosts();
       setTumblrBlog(res.data.blog);
       setTumblrPosts(res.data.posts || []);
-      setTumblrError(null);
     } catch (err) {
+      console.error('Error fetching Tumblr data:', err);
       setTumblrBlog(null);
       setTumblrPosts([]);
-      setTumblrError('Not connected to Tumblr or error fetching posts');
+      setTumblrError('Error fetching Tumblr posts or not logged in.');
+    } finally {
+      setTumblrLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchXData();
     fetchTumblrData();
-    const interval = setInterval(fetchXData, 5000); // fetch X every 5s
-    return () => clearInterval(interval);
+    fetchXData();
   }, []);
 
+  // --- Login handlers for Navbar ---
   const handleLoginWithX = () => {
     window.location.href = 'http://localhost:3000/auth/x/start';
   };
 
+  const handleLoginWithTumblr = () => {
+    window.location.href = 'http://localhost:3000/auth/tumblr/start';
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-white">
-      <Navbar onLoginWithX={handleLoginWithX} />
+      <Navbar
+        onLoginWithX={handleLoginWithX}
+        onLoginWithTumblr={handleLoginWithTumblr}
+      />
 
-      <div className="p-8 max-w-5xl mx-auto">
-        {loading ? (
-          <p className="text-center text-lg animate-pulse">Loading...</p>
-        ) : xUser ? (
-          <div>
-            {/* X section */}
-            <div className="mb-8 text-center">
-              <h2 className="text-4xl font-extrabold mb-2 drop-shadow-lg">
+      <div className="p-8 max-w-6xl mx-auto">
+        {/* --- X Section --- */}
+        <section className="mb-12">
+          {xLoading ? (
+            <p className="text-center text-lg animate-pulse">Loading X data...</p>
+          ) : xError ? (
+            <p className="text-center text-red-200">{xError}</p>
+          ) : xUser ? (
+            <>
+              <h2 className="text-4xl font-extrabold mb-4 text-center drop-shadow-lg">
                 Hello, {xUser.username || xUser.name}
               </h2>
-              <p className="text-lg drop-shadow-md">
-                Here are your latest posts from X
+              <p className="text-lg text-center drop-shadow-md mb-6">
+                Latest posts from X
               </p>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-              {posts.length > 0 ? (
-                posts.map((post) => (
-                  <div
-                    key={post.id}
-                    className="bg-white text-gray-800 p-6 rounded-3xl shadow-2xl transform transition hover:-translate-y-2 hover:shadow-3xl"
-                  >
-                    <p className="mb-4">{post.text}</p>
-                    <small className="text-gray-500">
-                      {new Date(post.created_at).toLocaleString()}
-                    </small>
-                  </div>
-                ))
-              ) : (
-                <p className="text-center col-span-full text-gray-200">
-                  No posts to display.
-                </p>
-              )}
-            </div>
-
-            {/* Tumblr section */}
-            <div className="mt-8">
-              <h3 className="text-2xl font-bold mb-3 text-center">
-                Tumblr Integration
-              </h3>
-              <div className="text-center mb-4">
-                <TumblrConnectButton />
-              </div>
-
-              {tumblrError && (
-                <p className="text-center text-red-100 mb-4">
-                  {tumblrError}
-                </p>
-              )}
-
-              {tumblrBlog && (
-                <div className="mb-4 text-center">
-                  <h4 className="text-xl font-semibold">
-                    {tumblrBlog.title || tumblrBlog.name}
-                  </h4>
-                  <p className="text-sm text-gray-200">{tumblrBlog.url}</p>
+              {xPosts.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {xPosts.map((post) => (
+                    <div
+                      key={post.id}
+                      className="bg-white text-gray-800 p-6 rounded-3xl shadow-2xl transform transition hover:-translate-y-2 hover:shadow-3xl"
+                    >
+                      <p className="mb-4">{post.text}</p>
+                      <small className="text-gray-500">
+                        {new Date(post.created_at).toLocaleString()}
+                      </small>
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                <p className="text-center text-gray-200">No X posts to display.</p>
               )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {tumblrPosts.map((post) => (
-                  <div
-                    key={post.id}
-                    className="bg-white text-gray-900 p-4 rounded-2xl shadow-xl"
-                  >
-                    <p className="font-semibold mb-2">
-                      {post.summary || post.slug || '(Untitled post)'}
-                    </p>
-                    <small className="text-gray-500">
-                      {new Date(post.date).toLocaleString()}
-                    </small>
-                  </div>
-                ))}
-
-                {tumblrPosts.length === 0 && !tumblrError && (
-                  <p className="text-center col-span-full text-gray-200">
-                    No Tumblr posts to display.
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="text-center">
-            <p className="mb-6 text-xl">
-              Please login with X to see your posts.
+            </>
+          ) : (
+            <p className="text-center text-gray-200">
+              Please log in with X to see your posts.
             </p>
+          )}
+        </section>
 
-            <div className="mt-8">
-              <h3 className="text-2xl font-bold mb-3">Tumblr Integration</h3>
-              <p className="mb-4">
-                You can still connect Tumblr (requires separate login):
-              </p>
-              <TumblrConnectButton />
-            </div>
-          </div>
-        )}
+        {/* --- Tumblr Section --- */}
+        <section>
+          {tumblrLoading ? (
+            <p className="text-center text-lg animate-pulse">Loading Tumblr posts...</p>
+          ) : tumblrError ? (
+            <p className="text-center text-red-200">{tumblrError}</p>
+          ) : tumblrBlog ? (
+            <>
+              <h2 className="text-3xl font-bold mb-4 text-center drop-shadow-lg">
+                Tumblr: {tumblrBlog.title || tumblrBlog.name}
+              </h2>
+              <p className="text-center text-sm text-gray-200 mb-6">{tumblrBlog.url}</p>
+
+              {tumblrPosts.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {tumblrPosts.map((post) => (
+                    <div
+                      key={post.id}
+                      className="bg-white text-gray-900 p-4 rounded-2xl shadow-xl"
+                    >
+                      <p className="font-semibold mb-2">
+                        {post.summary || post.slug || '(Untitled post)'}
+                      </p>
+                      <small className="text-gray-500">
+                        {new Date(post.date).toLocaleString()}
+                      </small>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-center text-gray-200">No Tumblr posts to display.</p>
+              )}
+            </>
+          ) : (
+            <p className="text-center text-gray-200">
+              Please log in with Tumblr to see posts.
+            </p>
+          )}
+        </section>
       </div>
     </div>
   );
