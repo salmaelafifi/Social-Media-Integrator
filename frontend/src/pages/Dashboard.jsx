@@ -1,7 +1,7 @@
 // frontend/src/pages/Dashboard.jsx
 import React, { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
-import { getXUser, getXPosts, getTumblrPosts } from '../services/api';
+import { getXUser, getXPosts, getTumblrPosts, getYouTubeUser, getYouTubeFeed, } from '../services/api';
 
 export default function Dashboard() {
   const [xUser, setXUser] = useState(null);
@@ -14,31 +14,33 @@ export default function Dashboard() {
   const [tumblrLoading, setTumblrLoading] = useState(true);
   const [tumblrError, setTumblrError] = useState(null);
 
+
+  const [ytUser, setYtUser] = useState(null);
+  const [ytFeed, setYtFeed] = useState([]);
+  const [ytLoading, setYtLoading] = useState(false);
+  const [ytError, setYtError] = useState(null);
+
   // --- Fetch X/Twitter data ---
-  const fetchXData = async () => {
-    setXLoading(true);
-    setXError(null);
+const fetchXData = async () => {
+  if (xUser && xPosts.length > 0) return;  // ← OPTIONAL short‑circuit
 
-    try {
-      const userRes = await getXUser();
-      setXUser(userRes.data.data);
+  setXLoading(true);
+  setXError(null);
 
-      const postsRes = await getXPosts();
-      setXPosts(postsRes.data.posts || []);
-    } catch (err) {
-      console.error('Error fetching X data:', err);
-      if (err.response?.status === 429) {
-        setXError('X API rate limit exceeded. Try again later.');
-      } else if (err.response?.status === 401) {
-        setXUser(null);
-        setXPosts([]);
-      } else {
-        setXError('Error fetching X data');
-      }
-    } finally {
-      setXLoading(false);
-    }
-  };
+  try {
+    const userRes = await getXUser();
+    setXUser(userRes.data.data);
+
+    const postsRes = await getXPosts();
+    setXPosts(postsRes.data.posts || []);
+
+  } catch (err) {
+    console.error("Error fetching X data:", err);
+  } finally {
+    setXLoading(false);
+  }
+};
+
 
   // --- Fetch Tumblr data ---
   const fetchTumblrData = async () => {
@@ -59,9 +61,31 @@ export default function Dashboard() {
     }
   };
 
+   const fetchYouTubeData = async () => {
+    setYtLoading(true);
+    setYtError(null);
+
+    try {
+      const userRes = await getYouTubeUser();
+      setYtUser(userRes.data.user);
+
+      const feedRes = await getYouTubeFeed();
+      setYtFeed(feedRes.data.feed || []);
+    } catch (err) {
+      console.error('Error fetching YouTube data:', err);
+      setYtUser(null);
+      setYtFeed([]);
+      setYtError('Error loading YouTube feed or not logged in.');
+    } finally {
+      setYtLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchTumblrData();
     fetchXData();
+    fetchYouTubeData();
+
   }, []);
 
   // --- Login handlers for Navbar ---
@@ -73,11 +97,16 @@ export default function Dashboard() {
     window.location.href = 'http://localhost:3000/auth/tumblr/start';
   };
 
+  const handleLoginWithYouTube = () => {
+    window.location.href = 'http://localhost:3000/auth/youtube/start';
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-white">
       <Navbar
         onLoginWithX={handleLoginWithX}
         onLoginWithTumblr={handleLoginWithTumblr}
+        onLoginWithYouTube={handleLoginWithYouTube}
       />
 
       <div className="p-8 max-w-6xl mx-auto">
@@ -158,6 +187,49 @@ export default function Dashboard() {
             <p className="text-center text-gray-200">
               Please log in with Tumblr to see posts.
             </p>
+          )}
+        </section>
+
+        {/* ===================== YOUTUBE SECTION ===================== */}
+        <section className="mb-16">
+          {ytLoading ? (
+            <p className="text-center text-lg animate-pulse">Loading YouTube...</p>
+          ) : ytError ? (
+            <p className="text-center text-red-200">{ytError}</p>
+          ) : ytUser ? (
+            <>
+              <h2 className="text-3xl font-bold mb-4 text-center">
+                YouTube: {ytUser.name}
+              </h2>
+              <p className="text-center text-gray-200 mb-6">
+                Channel: {ytUser.channelId}
+              </p>
+
+              {ytFeed.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {ytFeed.map((video) => (
+                    <div
+                      key={video.id}
+                      className="bg-white text-gray-900 rounded-2xl p-4 shadow-xl"
+                    >
+                      <img
+                        src={video.thumbnail}
+                        alt="thumbnail"
+                        className="rounded-lg mb-3"
+                      />
+                      <p className="font-bold mb-2">{video.title}</p>
+                      <small className="text-gray-500">
+                        {new Date(video.publishedAt).toLocaleString()}
+                      </small>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-center">No YouTube feed found.</p>
+              )}
+            </>
+          ) : (
+            <p className="text-center">Log in with YouTube to view feed.</p>
           )}
         </section>
       </div>

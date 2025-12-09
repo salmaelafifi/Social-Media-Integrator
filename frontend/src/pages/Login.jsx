@@ -21,7 +21,7 @@ export default function Login() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-purple-400 to-pink-400">
+    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-orange-400 via-pink-500 to-red-500">
       <form onSubmit={handleSubmit} className="bg-white p-10 rounded-3xl shadow-2xl w-full max-w-sm animate-fadeIn">
         <h2 className="text-3xl font-bold mb-8 text-center text-purple-700">Welcome Back</h2>
         {error && <p className="text-red-500 mb-4 text-center">{error}</p>}
