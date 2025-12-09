@@ -9,8 +9,17 @@ export const registerUser = (email, password) => API.post('/auth/register', { em
 export const loginUser = (email, password) => API.post('/auth/login', { email, password });
 export const logoutUser = () => API.post('/auth/logout');
 export const getCurrentUser = () => API.get('/me');
+
 export const startXLogin = () => API.get('/auth/x/start'); // returns redirect
 export const getXUser = () => API.get('/api/x/me');
 export const getXPosts = () => API.get('/api/x/posts');
 export const getTumblrPosts = () => api.get('/api/tumblr/posts');
+
+// Youtube API
+export const startYouTubeLogin = () => {
+  window.location.href = 'http://localhost:3000/auth/youtube/start';
+};
+export const getYouTubeUser = () => API.get('/api/youtube/me');
+export const getYouTubeFeed = () => API.get('/api/youtube/feed');
+
 
