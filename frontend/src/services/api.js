@@ -13,7 +13,9 @@ export const getCurrentUser = () => API.get('/me');
 export const startXLogin = () => API.get('/auth/x/start'); // returns redirect
 export const getXUser = () => API.get('/api/x/me');
 export const getXPosts = () => API.get('/api/x/posts');
-export const getTumblrPosts = () => api.get('/api/tumblr/posts');
+
+export const startTumblrLogin = () => API.get('/auth/tumblr/start');
+export const getTumblrPosts = () => API.get('/api/tumblr/posts');
 
 // Youtube API
 export const startYouTubeLogin = () => {

@@ -154,10 +154,8 @@ app.get('/auth/x/callback', async (req, res) => {
 
     xTokens = tokenResp.data;
 
-    res.send(
-      `<h2>X login successful ✅</h2>
-       <p>Now call <code>/api/x/me</code> from Thunder Client.</p>`
-    );
+    // Redirect back to frontend (adjust URL if your frontend runs elsewhere)
+    res.redirect('http://localhost:3001/dashboard');
   } catch (err) {
     console.error('Error exchanging code:', err.response?.data || err.message);
     res.status(500).send('Error getting X access token. Check server logs.');
