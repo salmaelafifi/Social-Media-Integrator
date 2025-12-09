@@ -28,4 +28,14 @@ export const startYouTubeLogin = () => {
 export const getYouTubeUser = () => API.get('/api/youtube/me');
 export const getYouTubeFeed = () => API.get('/api/youtube/feed');
 
+export const loginBluesky = () =>
+  axios.get('http://localhost:3000/auth/bluesky/login', {}, { withCredentials: true });
+
+export const getBlueskyUser = () =>
+  axios.get('http://localhost:3000/api/bluesky/me', { withCredentials: true });
+
+export const getBlueskyFeed = () =>
+  axios.get('http://localhost:3000/api/bluesky/feed', { withCredentials: true });
+
+
 

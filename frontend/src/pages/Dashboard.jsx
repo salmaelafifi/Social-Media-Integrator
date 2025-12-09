@@ -1,6 +1,8 @@
 // frontend/src/pages/Dashboard.jsx
 import React, { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
+import Loader from "../components/Loader";
+
 import {
   getXUser,
   getXPosts,
@@ -8,6 +10,8 @@ import {
   getTumblrFeed,
   getYouTubeUser,
   getYouTubeFeed,
+  getBlueskyUser,
+  getBlueskyFeed
 } from '../services/api';
 
 export default function Dashboard() {
@@ -19,15 +23,10 @@ export default function Dashboard() {
 
   // -------- Tumblr state --------
   const [tumblrBlog, setTumblrBlog] = useState(null);
-  const [tumblrPosts, setTumblrPosts] = useState([]);   // your own blog posts
-  const [tumblrFeed, setTumblrFeed] = useState([]);     // dashboard feed
+  const [tumblrPosts, setTumblrPosts] = useState([]);
+  const [tumblrFeed, setTumblrFeed] = useState([]);
   const [tumblrLoading, setTumblrLoading] = useState(true);
   const [tumblrError, setTumblrError] = useState(null);
-
-  // Filters for Tumblr feed
-  const [tumblrDateFrom, setTumblrDateFrom] = useState('');
-  const [tumblrDateTo, setTumblrDateTo] = useState('');
-  const [tumblrAuthor, setTumblrAuthor] = useState('');
 
   // -------- YouTube state --------
   const [ytUser, setYtUser] = useState(null);
@@ -35,10 +34,27 @@ export default function Dashboard() {
   const [ytLoading, setYtLoading] = useState(false);
   const [ytError, setYtError] = useState(null);
 
+  // -------- Bluesky state --------
+  const [bskyUser, setBskyUser] = useState(null);
+  const [bskyFeed, setBskyFeed] = useState([]);
+  const [bskyLoading, setBskyLoading] = useState(false);
+  const [bskyError, setBskyError] = useState(null);
+
+  // -------- Unified Filter State --------
+  const [showFilters, setShowFilters] = useState(false);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [selectedPlatforms, setSelectedPlatforms] = useState({
+    tumblr: true,
+    youtube: true,
+    bluesky: true,
+    twitter: true
+  });
+  const [selectedAuthor, setSelectedAuthor] = useState('');
+
   // --- Fetch X/Twitter data ---
   const fetchXData = async () => {
-    if (xUser && xPosts.length > 0) return; // optional short-circuit
-
+    if (xUser && xPosts.length > 0) return;
     setXLoading(true);
     setXError(null);
 
@@ -47,11 +63,9 @@ export default function Dashboard() {
       setXUser(userRes.data.data);
 
       const postsRes = await getXPosts();
-      // /api/x/posts returns { data: [...] } from X, not { posts: [...] }
       setXPosts(postsRes.data.data || []);
     } catch (err) {
       console.error('Error fetching X data:', err);
-      setXError('Error fetching X data or not logged in.');
       setXUser(null);
       setXPosts([]);
     } finally {
@@ -59,7 +73,7 @@ export default function Dashboard() {
     }
   };
 
-  // --- Fetch Tumblr data (posts + feed) ---
+  // --- Fetch Tumblr data ---
   const fetchTumblrData = async () => {
     setTumblrLoading(true);
     setTumblrError(null);
@@ -76,7 +90,7 @@ export default function Dashboard() {
       setTumblrBlog(null);
       setTumblrPosts([]);
       setTumblrFeed([]);
-      setTumblrError('Error fetching Tumblr posts/feed or not logged in.');
+      setTumblrError('Please log in with Tumblr to see your posts and feed.');
     } finally {
       setTumblrLoading(false);
     }
@@ -97,9 +111,28 @@ export default function Dashboard() {
       console.error('Error fetching YouTube data:', err);
       setYtUser(null);
       setYtFeed([]);
-      setYtError('Error loading YouTube feed or not logged in.');
     } finally {
       setYtLoading(false);
+    }
+  };
+
+  // --- Fetch Bluesky data ---
+  const fetchBlueskyData = async () => {
+    setBskyLoading(true);
+    setBskyError(null);
+
+    try {
+      const userRes = await getBlueskyUser();
+      setBskyUser(userRes.data);
+
+      const feedRes = await getBlueskyFeed();
+      setBskyFeed(feedRes.data);
+    } catch (err) {
+      setBskyUser(null);
+      setBskyFeed([]);
+      setBskyError("Please log in with Bluesky to see your feed.");
+    } finally {
+      setBskyLoading(false);
     }
   };
 
@@ -107,10 +140,10 @@ export default function Dashboard() {
     fetchXData();
     fetchTumblrData();
     fetchYouTubeData();
-
+    fetchBlueskyData();
   }, []);
 
-  // --- Login handlers for Navbar ---
+  // --- Login handlers ---
   const handleLoginWithX = () => {
     window.location.href = 'http://localhost:3000/auth/x/start';
   };
@@ -123,26 +156,106 @@ export default function Dashboard() {
     window.location.href = 'http://localhost:3000/auth/youtube/start';
   };
 
-  // Helper: list of unique blogs/authors in the feed
-  const tumblrAuthors = Array.from(
-    new Set(tumblrFeed.map((p) => p.blog_name))
-  ).filter(Boolean);
+  const handleLoginWithBluesky = () => {
+    window.location.href = "http://localhost:3000/auth/bluesky/login";
+  };
 
-  // Helper: apply date + author filter on Tumblr feed
-  const filteredTumblrFeed = tumblrFeed
-    .slice() // copy
-    .sort((a, b) => new Date(b.date) - new Date(a.date)) // newest → oldest
-    .filter((post) => {
-      if (!post.date) return false;
-      const d = new Date(post.date);
+  // --- Normalize all posts to unified format ---
+  const normalizedPosts = [
+    // Tumblr posts
+    ...tumblrFeed.map(post => ({
+      id: `tumblr-${post.id}`,
+      platform: 'tumblr',
+      text: post.summary || post.slug || '(Feed item)',
+      author: post.blog_name,
+      date: post.timestamp ? new Date(post.timestamp * 1000) : null,
+      thumbnail: null,
+      platformColor: 'bg-pink-500',
+    })),
+    // YouTube posts
+    ...ytFeed.map(video => ({
+      id: `youtube-${video.id}`,
+      platform: 'youtube',
+      text: video.title,
+      author: ytUser?.name || 'YouTube',
+      date: video.publishedAt ? new Date(video.publishedAt) : null,
+      thumbnail: video.thumbnail,
+      platformColor: 'bg-red-600',
+    })),
+    
+    // Bluesky posts
+    ...bskyFeed.map(item => ({
+      id: `bluesky-${item.post.uri}`,
+      platform: 'bluesky',
+      text: item.post?.record?.text || "(No text)",
+      author: item.post?.author?.displayName || item.post?.author?.handle || 'Bluesky User',
+      date: item.post?.record?.createdAt ? new Date(item.post.record.createdAt) : null,
+      thumbnail: null,
+      platformColor: 'bg-sky-500',
+    })),
+    // Twitter/X posts
+    ...xPosts.map(post => ({
+      id: `twitter-${post.id}`,
+      platform: 'twitter',
+      text: post.text,
+      author: xUser?.username || xUser?.name || 'X User',
+      date: post.created_at ? new Date(post.created_at) : null,
+      thumbnail: null,
+      platformColor: 'bg-gray-800',
+    }))
+  ];
 
-      if (tumblrDateFrom && d < new Date(tumblrDateFrom)) return false;
-      if (tumblrDateTo && d > new Date(tumblrDateTo + 'T23:59:59')) return false;
+  // --- Get unique authors ---
+  const allAuthors = Array.from(
+    new Set(normalizedPosts.map(p => p.author).filter(Boolean))
+  ).sort();
 
-      if (tumblrAuthor && post.blog_name !== tumblrAuthor) return false;
+  // --- Apply filters ---
+  const filteredPosts = normalizedPosts
+    .filter(post => {
+      // Platform filter
+      if (!selectedPlatforms[post.platform]) return false;
+
+      // Date filter
+      if (post.date) {
+        if (dateFrom && post.date < new Date(dateFrom)) return false;
+        if (dateTo && post.date > new Date(dateTo + 'T23:59:59')) return false;
+      }
+
+      // Author filter
+      if (selectedAuthor && post.author !== selectedAuthor) return false;
 
       return true;
+    })
+    .sort((a, b) => {
+      // Sort by date, newest first
+      if (!a.date) return 1;
+      if (!b.date) return -1;
+      return b.date - a.date;
     });
+
+  // --- Toggle platform filter ---
+  const togglePlatform = (platform) => {
+    setSelectedPlatforms(prev => ({
+      ...prev,
+      [platform]: !prev[platform]
+    }));
+  };
+
+  // --- Clear all filters ---
+  const clearFilters = () => {
+    setDateFrom('');
+    setDateTo('');
+    setSelectedAuthor('');
+    setSelectedPlatforms({
+      tumblr: true,
+      youtube: true,
+      bluesky: true,
+      twitter: true
+    });
+  };
+
+  const isLoading = tumblrLoading || ytLoading || bskyLoading || xLoading;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-white">
@@ -150,222 +263,163 @@ export default function Dashboard() {
         onLoginWithX={handleLoginWithX}
         onLoginWithTumblr={handleLoginWithTumblr}
         onLoginWithYouTube={handleLoginWithYouTube}
+        onLoginWithBluesky={handleLoginWithBluesky}
+        onToggleFilters={() => setShowFilters(!showFilters)}
       />
 
       <div className="p-8 max-w-6xl mx-auto">
-        {/* -------- X Section -------- */}
-        <section className="mb-12">
-          {xLoading ? (
-            <p className="text-center text-lg animate-pulse">Loading X data...</p>
-          ) : xError ? (
-            <p className="text-center text-red-200">{xError}</p>
-          ) : xUser ? (
-            <>
-              <h2 className="text-4xl font-extrabold mb-4 text-center drop-shadow-lg">
-                Hello, {xUser.username || xUser.name}
-              </h2>
-              <p className="text-lg text-center drop-shadow-md mb-6">
-                Latest posts from X
-              </p>
-
-              {xPosts.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {xPosts.map((post) => (
-                    <div
-                      key={post.id}
-                      className="bg-white text-gray-800 p-6 rounded-3xl shadow-2xl transform transition hover:-translate-y-2 hover:shadow-3xl"
-                    >
-                      <p className="mb-4">{post.text}</p>
-                      <small className="text-gray-500">
-                        {new Date(post.created_at).toLocaleString()}
-                      </small>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-center text-gray-200">No X posts to display.</p>
-              )}
-            </>
-          ) : (
-            <p className="text-center text-gray-200">
-              Please log in with X to see your posts.
-            </p>
-          )}
-        </section>
-
-        {/* -------- Tumblr Section -------- */}
-        <section className="mb-12">
-          {tumblrLoading ? (
-            <p className="text-center text-lg animate-pulse">Loading Tumblr...</p>
-          ) : tumblrError ? (
-            <p className="text-center text-red-200">{tumblrError}</p>
-          ) : tumblrBlog || tumblrPosts.length > 0 || tumblrFeed.length > 0 ? (
-            <>
-              {tumblrBlog && (
-                <>
-                  <h2 className="text-3xl font-bold mb-4 text-center drop-shadow-lg">
-                    Tumblr: {tumblrBlog.title || tumblrBlog.name}
-                  </h2>
-                  <p className="text-center text-sm text-gray-200 mb-6">
-                    {tumblrBlog.url}
-                  </p>
-                </>
-              )}
-
-              {/* Your blog posts */}
-              <h3 className="text-2xl font-semibold mb-3">Your Tumblr Posts</h3>
-              {tumblrPosts.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-                  {tumblrPosts.map((post) => (
-                    <div
-                      key={post.id}
-                      className="bg-white text-gray-900 p-4 rounded-2xl shadow-xl"
-                    >
-                      <p className="font-semibold mb-2">
-                        {post.summary || post.slug || '(Untitled post)'}
-                      </p>
-                      <small className="text-gray-500">
-                        {post.date ? new Date(post.date).toLocaleString() : ''}
-                      </small>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-center text-gray-200 mb-8">
-                  No Tumblr posts to display.
-                </p>
-              )}
-
-              {/* Dashboard feed */}
-              <h3 className="text-2xl font-semibold mb-3">Your Tumblr Feed</h3>
-
-              {/* Date + author filter controls */}
-              <div className="flex flex-wrap justify-center gap-4 mb-4">
-                <div className="flex flex-col items-start">
-                  <label className="text-sm mb-1">From date</label>
-                  <input
-                    type="date"
-                    value={tumblrDateFrom}
-                    onChange={(e) => setTumblrDateFrom(e.target.value)}
-                    className="text-gray-900 rounded px-2 py-1"
-                  />
-                </div>
-
-                <div className="flex flex-col items-start">
-                  <label className="text-sm mb-1">To date</label>
-                  <input
-                    type="date"
-                    value={tumblrDateTo}
-                    onChange={(e) => setTumblrDateTo(e.target.value)}
-                    className="text-gray-900 rounded px-2 py-1"
-                  />
-                </div>
-
-                <div className="flex flex-col items-start">
-                  <label className="text-sm mb-1">Blog / Account</label>
-                  <select
-                    value={tumblrAuthor}
-                    onChange={(e) => setTumblrAuthor(e.target.value)}
-                    className="text-gray-900 rounded px-2 py-1"
-                  >
-                    <option value="">All</option>
-                    {tumblrAuthors.map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
+        <div className="bg-yellow-300 text-black text-center py-3 rounded-xl font-semibold mb-6 shadow-lg">
+          ⚠️ YouTube & Twitter integrations are still under construction. More features coming soon!
+        </div>
+        {/* Filter Panel */}
+        {showFilters && (
+          <div className="bg-white text-gray-900 rounded-2xl p-6 mb-8 shadow-2xl">
+            <h3 className="text-2xl font-bold mb-4">Filter Posts</h3>
+            
+            {/* Platform Selection */}
+            <div className="mb-4">
+              <label className="block font-semibold mb-2">Platforms</label>
+              <div className="flex flex-wrap gap-3">
                 <button
-                  type="button"
-                  onClick={() => {
-                    setTumblrDateFrom('');
-                    setTumblrDateTo('');
-                    setTumblrAuthor('');
-                  }}
-                  className="bg-white text-purple-700 font-semibold px-3 py-1 rounded-full shadow"
+                  onClick={() => togglePlatform('tumblr')}
+                  className={`px-4 py-2 rounded-full font-semibold transition ${
+                    selectedPlatforms.tumblr
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-200 text-gray-600'
+                  }`}
                 >
-                  Clear
+                  Tumblr
+                </button>
+                <button
+                  onClick={() => togglePlatform('bluesky')}
+                  className={`px-4 py-2 rounded-full font-semibold transition ${
+                    selectedPlatforms.bluesky
+                      ? 'bg-sky-500 text-white'
+                      : 'bg-gray-200 text-gray-600'
+                  }`}
+                >
+                  Bluesky
+                </button>
+                  {/* YouTube under construction */}
+                  <button
+                    disabled
+                    title="YouTube integration is under construction"
+                    className="px-4 py-2 rounded-full font-semibold bg-gray-300 
+                              text-gray-500 cursor-not-allowed opacity-60"
+                  >
+                    YouTube 🚧
+                </button>
+
+                {/* Twitter under construction */}
+                <button
+                  disabled
+                  title="Twitter/X integration is under construction"
+                  className="px-4 py-2 rounded-full font-semibold bg-gray-300 
+                            text-gray-500 cursor-not-allowed opacity-60"
+                >
+                  Twitter 🚧
                 </button>
               </div>
+            </div>
 
-              {filteredTumblrFeed.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {filteredTumblrFeed.map((post) => (
-                    <div
-                      key={post.id}
-                      className="bg-white text-gray-900 p-4 rounded-2xl shadow-xl"
-                    >
-                      <p className="font-semibold mb-1">
-                        {post.summary || post.slug || '(Feed item)'}
-                      </p>
-                      <p className="text-xs text-gray-500 mb-1">
-                        Blog: {post.blog_name}
-                      </p>
-                      <small className="text-gray-500">
-                        {post.date ? new Date(post.date).toLocaleString() : ''}
-                      </small>
-                    </div>
-                  ))}
+            {/* Date Range */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block font-semibold mb-2">From Date</label>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="w-full rounded-lg px-3 py-2 border border-gray-300"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-2">To Date</label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="w-full rounded-lg px-3 py-2 border border-gray-300"
+                />
+              </div>
+            </div>
+
+            {/* Author Selection */}
+            <div className="mb-4">
+              <label className="block font-semibold mb-2">Author / Account</label>
+              <select
+                value={selectedAuthor}
+                onChange={(e) => setSelectedAuthor(e.target.value)}
+                className="w-full rounded-lg px-3 py-2 border border-gray-300"
+              >
+                <option value="">All Authors</option>
+                {allAuthors.map((author) => (
+                  <option key={author} value={author}>
+                    {author}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Clear Button */}
+            <button
+              onClick={clearFilters}
+              className="bg-purple-600 text-white font-semibold px-6 py-2 rounded-full hover:bg-purple-700 transition"
+            >
+              Clear All Filters
+            </button>
+          </div>
+        )}
+
+        {/* Unified Feed */}
+        <section>
+          <h2 className="text-4xl font-extrabold mb-6 text-center drop-shadow-lg">
+            Your Social Media Feed
+          </h2>
+
+          {isLoading ? (
+            <div className="flex justify-center my-12">
+                <Loader />
+            </div>          
+            ) : filteredPosts.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredPosts.map((post) => (
+                <div
+                  key={post.id}
+                  className="bg-white text-gray-900 rounded-2xl shadow-2xl overflow-hidden transform transition hover:-translate-y-2 hover:shadow-3xl"
+                >
+                  {/* Platform Badge */}
+                  <div className={`${post.platformColor} text-white px-4 py-2 font-bold flex items-center gap-2`}>
+                    <span>{post.platformIcon}</span>
+                    <span className="uppercase text-sm tracking-wide">
+                      {post.platform}
+                    </span>
+                  </div>
+
+                  {/* Content */}
+                  <div className="p-4">
+                    {post.thumbnail && (
+                      <img
+                        src={post.thumbnail}
+                        alt="thumbnail"
+                        className="rounded-lg mb-3 w-full"
+                      />
+                    )}
+                    <p className="font-semibold mb-2 line-clamp-3">{post.text}</p>
+                    <p className="text-sm text-gray-600 mb-1">
+                      By: {post.author}
+                    </p>
+                    <small className="text-gray-500">
+                      {post.date ? post.date.toLocaleString() : 'No date'}
+                    </small>
+                  </div>
                 </div>
-              ) : (
-                <p className="text-center text-gray-200">
-                  No Tumblr feed items to display for this filter.
-                </p>
-              )}
-            </>
+              ))}
+            </div>
           ) : (
-            <p className="text-center text-gray-200">
-              Please log in with Tumblr to see posts and feed.
+            <p className="text-center text-gray-200 text-lg">
+              No posts to display. Try adjusting your filters or log in to more platforms.
             </p>
-          )}
-        </section>
-
-        {/* -------- YouTube Section -------- */}
-        <section className="mb-16">
-          {ytLoading ? (
-            <p className="text-center text-lg animate-pulse">Loading YouTube...</p>
-          ) : ytError ? (
-            <p className="text-center text-red-200">{ytError}</p>
-          ) : ytUser ? (
-            <>
-              <h2 className="text-3xl font-bold mb-4 text-center">
-                YouTube: {ytUser.name}
-              </h2>
-              <p className="text-center text-gray-200 mb-6">
-                Channel: {ytUser.channelId}
-              </p>
-
-              {ytFeed.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {ytFeed.map((video) => (
-                    <div
-                      key={video.id}
-                      className="bg-white text-gray-900 rounded-2xl p-4 shadow-xl"
-                    >
-                      {video.thumbnail && (
-                        <img
-                          src={video.thumbnail}
-                          alt="thumbnail"
-                          className="rounded-lg mb-3"
-                        />
-                      )}
-                      <p className="font-bold mb-2">{video.title}</p>
-                      <small className="text-gray-500">
-                        {video.publishedAt
-                          ? new Date(video.publishedAt).toLocaleString()
-                          : ''}
-                      </small>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-center">No YouTube feed found.</p>
-              )}
-            </>
-          ) : (
-            <p className="text-center">Log in with YouTube to view feed.</p>
           )}
         </section>
       </div>

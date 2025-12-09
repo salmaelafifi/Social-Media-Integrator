@@ -1,36 +1,121 @@
 // frontend/src/components/Navbar.jsx
 import React from 'react';
-import { FaUserCircle, FaFilter } from 'react-icons/fa';
+import { FaFilter, FaTwitter, FaYoutube, FaTumblr, FaCloud } from 'react-icons/fa';
 
-export default function Navbar({ onLoginWithX, onLoginWithTumblr, onLoginWithYouTube }) {
+export default function Navbar({
+  onLoginWithX,
+  onLoginWithTumblr,
+  onLoginWithYouTube,
+  onLoginWithBluesky,
+  onToggleFilters
+}) {
   return (
-    <nav className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white p-4 flex justify-between items-center shadow-lg">
-      <div className="font-extrabold text-xl drop-shadow-lg">Social Media Integrator</div>
+    <nav className="
+      backdrop-blur-lg bg-white/10 
+      text-white p-4 
+      flex justify-between items-center 
+      shadow-xl border-b border-white/20
+    ">
+      {/* Left side — Logo */}
+      <div className="font-extrabold text-2xl drop-shadow-md tracking-wide">
+        <span className="text-white">Social</span>
+        <span className="text-white">Hub</span>
+      </div>
 
+      {/* Right side — Buttons */}
       <div className="flex items-center gap-4">
-        <button className="flex items-center gap-2 bg-white text-indigo-600 font-semibold px-4 py-2 rounded-full hover:bg-gray-100 transition transform hover:-translate-y-1 shadow-lg">
+
+        {/* Filter Button */}
+        <button
+          onClick={onToggleFilters}
+          className="
+            flex items-center gap-2 
+            bg-white/20 backdrop-blur-md 
+            text-white px-5 py-2 
+            rounded-full font-semibold 
+            hover:bg-white/30 transition-all 
+            hover:-translate-y-1 shadow-md
+          "
+        >
           <FaFilter /> Filter
         </button>
 
-        <button
-          onClick={onLoginWithX}
-          className="bg-white text-blue-500 font-semibold px-4 py-2 rounded-full hover:bg-gray-100 transition transform hover:-translate-y-1 shadow-lg"
-        >
-          Twitter X
-        </button>
-
+        {/* Tumblr */}
         <button
           onClick={onLoginWithTumblr}
-          className="bg-white text-green-500 font-semibold px-4 py-2 rounded-full hover:bg-gray-100 transition transform hover:-translate-y-1 shadow-lg"
+          className="
+            flex items-center gap-2 
+            bg-white text-green-600 
+            px-4 py-2 rounded-full font-semibold 
+            hover:bg-gray-100 transition-all 
+            hover:-translate-y-1 shadow-md
+          "
         >
-          Tumblr
+          <FaTumblr /> Tumblr
         </button>
-          <button
-          onClick={onLoginWithYouTube}
-          className="bg-white text-red-600 font-semibold px-4 py-2 rounded-full hover:bg-gray-100 transition transform hover:-translate-y-1 shadow-lg"
+
+        {/* Bluesky */}
+        <button
+          onClick={onLoginWithBluesky}
+          className="
+            flex items-center gap-2 
+            bg-white text-sky-600 
+            px-4 py-2 rounded-full font-semibold 
+            hover:bg-gray-100 transition-all 
+            hover:-translate-y-1 shadow-md
+          "
         >
-          YouTube
+          <FaCloud /> Bluesky
         </button>
+
+        {/* Twitter/X — Disabled */}
+        <button
+          disabled
+          className="
+            relative flex items-center gap-2 
+            bg-white text-blue-500 
+            px-4 py-2 rounded-full font-semibold 
+            opacity-60 cursor-not-allowed 
+            shadow-md
+          "
+        >
+          <FaTwitter /> Twitter/X
+          <span
+            className="
+              absolute -top-2 -right-2 
+              bg-yellow-300 text-black 
+              text-xs font-bold px-2 py-0.5 
+              rounded-full shadow-md
+            "
+          >
+            Soon
+          </span>
+        </button>
+
+        {/* YouTube — Disabled */}
+        <button
+          disabled
+          className="
+            relative flex items-center gap-2 
+            bg-white text-red-600 
+            px-4 py-2 rounded-full font-semibold 
+            opacity-60 cursor-not-allowed 
+            shadow-md
+          "
+        >
+          <FaYoutube /> YouTube
+          <span
+            className="
+              absolute -top-2 -right-2 
+              bg-yellow-300 text-black 
+              text-xs font-bold px-2 py-0.5 
+              rounded-full shadow-md
+            "
+          >
+            Soon
+          </span>
+        </button>
+
       </div>
     </nav>
   );

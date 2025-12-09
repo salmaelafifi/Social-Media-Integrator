@@ -385,10 +385,46 @@ app.get('/api/tumblr/feed', async (req, res) => {
 
 
 
-// ---- start server ----
-app.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`);
+// Get Tumblr FEED (dashboard) for the authenticated user
+app.get('/api/tumblr/feed', async (req, res) => {
+  const tumblrSession = req.session.tumblr;
+  if (!tumblrSession) {
+    return res.status(401).json({ error: 'Not connected to Tumblr' });
+  }
+
+  try {
+    const client = tumblr.createClient({
+      consumer_key: TUMBLR_CONSUMER_KEY,
+      consumer_secret: TUMBLR_CONSUMER_SECRET,
+      token: tumblrSession.accessToken,
+      token_secret: tumblrSession.accessTokenSecret,
+      //returnPromises: true, // important so we can use async/await
+    });
+
+    // This is the user's dashboard (their feed)
+    const dashboard = await client.userDashboard({
+      limit: 20,        // how many items from the feed
+      // optionally: type: 'text', 'photo', etc.
+    });
+
+    // tumblr.js returns { posts: [...] }
+    res.json({
+      posts: dashboard.posts || [],
+    });
+    
+
+  } catch (err) {
+    console.error('Error fetching Tumblr feed:', err);
+    res.status(500).json({
+      error: 'Error fetching Tumblr feed',
+      details: err.message,
+    });
+  }
 });
+
+
+
+
 
 
 //YouTube OAuth Helper Variables
@@ -451,6 +487,10 @@ app.get('/auth/youtube/callback', async (req, res) => {
       <h2>YouTube Login Successful 🎉</h2>
       <p>You can now call <code>/api/youtube/feed</code></p>
     `);
+    // Redirect back to frontend (adjust URL if your frontend runs elsewhere)
+    res.redirect('http://localhost:3001/dashboard');
+    
+    
 
   } catch (err) {
     console.error("YT token error:", err.response?.data || err.message);
@@ -505,4 +545,86 @@ app.get('/api/youtube/feed', async (req, res) => {
     console.error("YT feed error:", err.response?.data || err.message);
     res.status(500).json({ error: "Error loading YouTube feed" });
   }
+});
+
+
+/// ========== BLUESKY API ==========
+// --- BLUESKY API ---
+const { BskyAgent } = require('@atproto/api');
+let bskyAgent = null;
+
+// Start login
+app.get('/auth/bluesky/start', (req, res) => {
+  res.redirect('/auth/bluesky/login');
+});
+
+// Login to Bluesky
+app.get('/auth/bluesky/login', async (req, res) => {
+  const username = process.env.BSKY_USERNAME;
+  const password = process.env.BSKY_PASSWORD;
+
+  try {
+    bskyAgent = new BskyAgent({ service: 'https://bsky.social' });
+
+    await bskyAgent.login({
+      identifier: username,
+      password: password,
+    });
+
+    req.session.bskyLoggedIn = true;
+    res.redirect('http://localhost:3001/dashboard');
+
+
+
+  } catch (err) {
+    console.error('Bluesky login error:', err);
+    res.status(500).json({ error: 'Failed to login to Bluesky' });
+  }
+});
+
+// Get profile
+app.get('/api/bluesky/me', async (req, res) => {
+  if (!req.session.bskyLoggedIn || !bskyAgent) {
+    return res.status(401).json({ error: 'Not logged into Bluesky' });
+  }
+
+  try {
+    const profile = await bskyAgent.getProfile({
+      actor: process.env.BSKY_USERNAME,
+    });
+
+    res.json(profile.data);
+
+  } catch (err) {
+    console.error('Bluesky profile error:', err);
+    res.status(500).json({ error: 'Error fetching Bluesky profile' });
+  }
+});
+
+// Get feed
+app.get('/api/bluesky/feed', async (req, res) => {
+  if (!req.session.bskyLoggedIn || !bskyAgent) {
+    return res.status(401).json({ error: 'Not logged into Bluesky' });
+  }
+
+  try {
+    const feed = await bskyAgent.getTimeline({
+      algorithm: 'reverse-chronological',
+      limit: 20,
+    });
+
+    console.log("FEED FROM BLUESKY:", feed.data.feed);   // <<< ADD THIS
+    res.json(feed.data.feed);
+  } catch (err) {
+    console.error('Bluesky feed error:', err);
+    res.status(500).json({ error: 'Error fetching Bluesky feed' });
+  }
+});
+
+
+
+
+// ---- start server ----
+app.listen(PORT, () => {
+  console.log(`Server listening on http://localhost:${PORT}`);
 });
