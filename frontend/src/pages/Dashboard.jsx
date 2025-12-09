@@ -24,9 +24,10 @@ export default function Dashboard() {
   const [tumblrLoading, setTumblrLoading] = useState(true);
   const [tumblrError, setTumblrError] = useState(null);
 
-  // NEW: date filter for Tumblr feed
+  // Filters for Tumblr feed
   const [tumblrDateFrom, setTumblrDateFrom] = useState('');
   const [tumblrDateTo, setTumblrDateTo] = useState('');
+  const [tumblrAuthor, setTumblrAuthor] = useState('');
 
   // -------- YouTube state --------
   const [ytUser, setYtUser] = useState(null);
@@ -106,6 +107,7 @@ export default function Dashboard() {
     fetchXData();
     fetchTumblrData();
     fetchYouTubeData();
+
   }, []);
 
   // --- Login handlers for Navbar ---
@@ -121,27 +123,26 @@ export default function Dashboard() {
     window.location.href = 'http://localhost:3000/auth/youtube/start';
   };
 
+  // Helper: list of unique blogs/authors in the feed
+  const tumblrAuthors = Array.from(
+    new Set(tumblrFeed.map((p) => p.blog_name))
+  ).filter(Boolean);
 
-  // Helper: apply date filter on Tumblr feed
+  // Helper: apply date + author filter on Tumblr feed
   const filteredTumblrFeed = tumblrFeed
-  // sort newest → oldest (just to be safe)
-  .slice()
-  .sort((a, b) => new Date(b.date) - new Date(a.date))
-  // filter by range
-  .filter((post) => {
-    if (!post.date) return false;
-    const d = new Date(post.date);
+    .slice() // copy
+    .sort((a, b) => new Date(b.date) - new Date(a.date)) // newest → oldest
+    .filter((post) => {
+      if (!post.date) return false;
+      const d = new Date(post.date);
 
-    if (tumblrDateFrom && d < new Date(tumblrDateFrom)) return false;
+      if (tumblrDateFrom && d < new Date(tumblrDateFrom)) return false;
+      if (tumblrDateTo && d > new Date(tumblrDateTo + 'T23:59:59')) return false;
 
-    // include the whole "to" day by adding end-of-day time
-    if (tumblrDateTo && d > new Date(tumblrDateTo + 'T23:59:59')) return false;
+      if (tumblrAuthor && post.blog_name !== tumblrAuthor) return false;
 
-    return true;
-  });
-
-
-
+      return true;
+    });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-white">
@@ -238,7 +239,7 @@ export default function Dashboard() {
               {/* Dashboard feed */}
               <h3 className="text-2xl font-semibold mb-3">Your Tumblr Feed</h3>
 
-              {/* Date filter controls */}
+              {/* Date + author filter controls */}
               <div className="flex flex-wrap justify-center gap-4 mb-4">
                 <div className="flex flex-col items-start">
                   <label className="text-sm mb-1">From date</label>
@@ -249,6 +250,7 @@ export default function Dashboard() {
                     className="text-gray-900 rounded px-2 py-1"
                   />
                 </div>
+
                 <div className="flex flex-col items-start">
                   <label className="text-sm mb-1">To date</label>
                   <input
@@ -258,11 +260,29 @@ export default function Dashboard() {
                     className="text-gray-900 rounded px-2 py-1"
                   />
                 </div>
+
+                <div className="flex flex-col items-start">
+                  <label className="text-sm mb-1">Blog / Account</label>
+                  <select
+                    value={tumblrAuthor}
+                    onChange={(e) => setTumblrAuthor(e.target.value)}
+                    className="text-gray-900 rounded px-2 py-1"
+                  >
+                    <option value="">All</option>
+                    {tumblrAuthors.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <button
                   type="button"
                   onClick={() => {
                     setTumblrDateFrom('');
                     setTumblrDateTo('');
+                    setTumblrAuthor('');
                   }}
                   className="bg-white text-purple-700 font-semibold px-3 py-1 rounded-full shadow"
                 >
@@ -291,7 +311,7 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <p className="text-center text-gray-200">
-                  No Tumblr feed items to display for this date range.
+                  No Tumblr feed items to display for this filter.
                 </p>
               )}
             </>
@@ -301,7 +321,6 @@ export default function Dashboard() {
             </p>
           )}
         </section>
-
 
         {/* -------- YouTube Section -------- */}
         <section className="mb-16">
