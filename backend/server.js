@@ -303,10 +303,10 @@ app.get('/api/tumblr/posts', async (req, res) => {
     return res.status(401).json({ error: 'Not connected to Tumblr' });
   }
 
-  // Create Tumblr client with user access token
+ // Create Tumblr client with user access token
   const client = tumblr.createClient({
     consumer_key: TUMBLR_CONSUMER_KEY,
-    consumer_secret: TUMBLR_CONSUMER_SECRET,
+   consumer_secret: TUMBLR_CONSUMER_SECRET,
     token: tumblrSession.accessToken,
     token_secret: tumblrSession.accessTokenSecret,
     returnPromises: true, // so we can use async/await
@@ -346,6 +346,43 @@ app.get('/api/tumblr/posts', async (req, res) => {
     res.status(500).json({ error: 'Error fetching Tumblr posts' });
   }
 });
+
+
+// Get Tumblr FEED (dashboard) for the authenticated user
+app.get('/api/tumblr/feed', async (req, res) => {
+  const tumblrSession = req.session.tumblr;
+  if (!tumblrSession) {
+    return res.status(401).json({ error: 'Not connected to Tumblr' });
+  }
+
+  try {
+    const client = tumblr.createClient({
+      consumer_key: TUMBLR_CONSUMER_KEY,
+      consumer_secret: TUMBLR_CONSUMER_SECRET,
+      token: tumblrSession.accessToken,
+      token_secret: tumblrSession.accessTokenSecret,
+      returnPromises: true, // important so we can use async/await
+    });
+
+    // This is the user's dashboard (their feed)
+    const dashboard = await client.userDashboard({
+      limit: 20,        // how many items from the feed
+      // optionally: type: 'text', 'photo', etc.
+    });
+
+    // tumblr.js returns { posts: [...] }
+    res.json({
+      posts: dashboard.posts || [],
+    });
+  } catch (err) {
+    console.error('Error fetching Tumblr feed:', err);
+    res.status(500).json({
+      error: 'Error fetching Tumblr feed',
+      details: err.message,
+    });
+  }
+});
+
 
 
 // ---- start server ----

@@ -16,6 +16,10 @@ export const getXPosts = () => API.get('/api/x/posts');
 
 export const startTumblrLogin = () => API.get('/auth/tumblr/start');
 export const getTumblrPosts = () => API.get('/api/tumblr/posts');
+export const getTumblrFeed = () => API.get('/api/tumblr/feed');
+
+
+
 
 // Youtube API
 export const startYouTubeLogin = () => {

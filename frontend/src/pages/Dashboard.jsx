@@ -1,67 +1,84 @@
 // frontend/src/pages/Dashboard.jsx
 import React, { useEffect, useState } from 'react';
 import Navbar from '../components/Navbar';
-import { getXUser, getXPosts, getTumblrPosts, getYouTubeUser, getYouTubeFeed, } from '../services/api';
+import {
+  getXUser,
+  getXPosts,
+  getTumblrPosts,
+  getTumblrFeed,
+  getYouTubeUser,
+  getYouTubeFeed,
+} from '../services/api';
 
 export default function Dashboard() {
+  // -------- X / Twitter state --------
   const [xUser, setXUser] = useState(null);
   const [xPosts, setXPosts] = useState([]);
   const [xLoading, setXLoading] = useState(false);
   const [xError, setXError] = useState(null);
 
+  // -------- Tumblr state --------
   const [tumblrBlog, setTumblrBlog] = useState(null);
-  const [tumblrPosts, setTumblrPosts] = useState([]);
+  const [tumblrPosts, setTumblrPosts] = useState([]);   // your own blog posts
+  const [tumblrFeed, setTumblrFeed] = useState([]);     // dashboard feed
   const [tumblrLoading, setTumblrLoading] = useState(true);
   const [tumblrError, setTumblrError] = useState(null);
 
-
+  // -------- YouTube state --------
   const [ytUser, setYtUser] = useState(null);
   const [ytFeed, setYtFeed] = useState([]);
   const [ytLoading, setYtLoading] = useState(false);
   const [ytError, setYtError] = useState(null);
 
   // --- Fetch X/Twitter data ---
-const fetchXData = async () => {
-  if (xUser && xPosts.length > 0) return;  // ← OPTIONAL short‑circuit
+  const fetchXData = async () => {
+    if (xUser && xPosts.length > 0) return; // optional short-circuit
 
-  setXLoading(true);
-  setXError(null);
+    setXLoading(true);
+    setXError(null);
 
-  try {
-    const userRes = await getXUser();
-    setXUser(userRes.data.data);
+    try {
+      const userRes = await getXUser();
+      setXUser(userRes.data.data);
 
-    const postsRes = await getXPosts();
-    setXPosts(postsRes.data.posts || []);
+      const postsRes = await getXPosts();
+      // /api/x/posts returns { data: [...] } from X, not { posts: [...] }
+      setXPosts(postsRes.data.data || []);
+    } catch (err) {
+      console.error('Error fetching X data:', err);
+      setXError('Error fetching X data or not logged in.');
+      setXUser(null);
+      setXPosts([]);
+    } finally {
+      setXLoading(false);
+    }
+  };
 
-  } catch (err) {
-    console.error("Error fetching X data:", err);
-  } finally {
-    setXLoading(false);
-  }
-};
-
-
-  // --- Fetch Tumblr data ---
+  // --- Fetch Tumblr data (posts + feed) ---
   const fetchTumblrData = async () => {
     setTumblrLoading(true);
     setTumblrError(null);
 
     try {
-      const res = await getTumblrPosts();
-      setTumblrBlog(res.data.blog);
-      setTumblrPosts(res.data.posts || []);
+      const postsRes = await getTumblrPosts();
+      setTumblrBlog(postsRes.data.blog);
+      setTumblrPosts(postsRes.data.posts || []);
+
+      const feedRes = await getTumblrFeed();
+      setTumblrFeed(feedRes.data.posts || []);
     } catch (err) {
       console.error('Error fetching Tumblr data:', err);
       setTumblrBlog(null);
       setTumblrPosts([]);
-      setTumblrError('Error fetching Tumblr posts or not logged in.');
+      setTumblrFeed([]);
+      setTumblrError('Error fetching Tumblr posts/feed or not logged in.');
     } finally {
       setTumblrLoading(false);
     }
   };
 
-   const fetchYouTubeData = async () => {
+  // --- Fetch YouTube data ---
+  const fetchYouTubeData = async () => {
     setYtLoading(true);
     setYtError(null);
 
@@ -70,7 +87,7 @@ const fetchXData = async () => {
       setYtUser(userRes.data.user);
 
       const feedRes = await getYouTubeFeed();
-      setYtFeed(feedRes.data.feed || []);
+      setYtFeed(feedRes.data.feed || feedRes.data || []);
     } catch (err) {
       console.error('Error fetching YouTube data:', err);
       setYtUser(null);
@@ -82,10 +99,9 @@ const fetchXData = async () => {
   };
 
   useEffect(() => {
-    fetchTumblrData();
     fetchXData();
+    fetchTumblrData();
     fetchYouTubeData();
-
   }, []);
 
   // --- Login handlers for Navbar ---
@@ -110,7 +126,7 @@ const fetchXData = async () => {
       />
 
       <div className="p-8 max-w-6xl mx-auto">
-        {/* --- X Section --- */}
+        {/* -------- X Section -------- */}
         <section className="mb-12">
           {xLoading ? (
             <p className="text-center text-lg animate-pulse">Loading X data...</p>
@@ -150,21 +166,29 @@ const fetchXData = async () => {
           )}
         </section>
 
-        {/* --- Tumblr Section --- */}
-        <section>
+        {/* -------- Tumblr Section -------- */}
+        <section className="mb-12">
           {tumblrLoading ? (
-            <p className="text-center text-lg animate-pulse">Loading Tumblr posts...</p>
+            <p className="text-center text-lg animate-pulse">Loading Tumblr...</p>
           ) : tumblrError ? (
             <p className="text-center text-red-200">{tumblrError}</p>
-          ) : tumblrBlog ? (
+          ) : tumblrBlog || tumblrPosts.length > 0 || tumblrFeed.length > 0 ? (
             <>
-              <h2 className="text-3xl font-bold mb-4 text-center drop-shadow-lg">
-                Tumblr: {tumblrBlog.title || tumblrBlog.name}
-              </h2>
-              <p className="text-center text-sm text-gray-200 mb-6">{tumblrBlog.url}</p>
+              {tumblrBlog && (
+                <>
+                  <h2 className="text-3xl font-bold mb-4 text-center drop-shadow-lg">
+                    Tumblr: {tumblrBlog.title || tumblrBlog.name}
+                  </h2>
+                  <p className="text-center text-sm text-gray-200 mb-6">
+                    {tumblrBlog.url}
+                  </p>
+                </>
+              )}
 
+              {/* Your blog posts */}
+              <h3 className="text-2xl font-semibold mb-3">Your Tumblr Posts</h3>
               {tumblrPosts.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
                   {tumblrPosts.map((post) => (
                     <div
                       key={post.id}
@@ -174,23 +198,52 @@ const fetchXData = async () => {
                         {post.summary || post.slug || '(Untitled post)'}
                       </p>
                       <small className="text-gray-500">
-                        {new Date(post.date).toLocaleString()}
+                        {post.date ? new Date(post.date).toLocaleString() : ''}
                       </small>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-center text-gray-200">No Tumblr posts to display.</p>
+                <p className="text-center text-gray-200 mb-8">
+                  No Tumblr posts to display.
+                </p>
+              )}
+
+              {/* Dashboard feed */}
+              <h3 className="text-2xl font-semibold mb-3">Your Tumblr Feed</h3>
+              {tumblrFeed.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {tumblrFeed.map((post) => (
+                    <div
+                      key={post.id}
+                      className="bg-white text-gray-900 p-4 rounded-2xl shadow-xl"
+                    >
+                      <p className="font-semibold mb-1">
+                        {post.summary || post.slug || '(Feed item)'}
+                      </p>
+                      <p className="text-xs text-gray-500 mb-1">
+                        Blog: {post.blog_name}
+                      </p>
+                      <small className="text-gray-500">
+                        {post.date ? new Date(post.date).toLocaleString() : ''}
+                      </small>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-center text-gray-200">
+                  No Tumblr feed items to display.
+                </p>
               )}
             </>
           ) : (
             <p className="text-center text-gray-200">
-              Please log in with Tumblr to see posts.
+              Please log in with Tumblr to see posts and feed.
             </p>
           )}
         </section>
 
-        {/* ===================== YOUTUBE SECTION ===================== */}
+        {/* -------- YouTube Section -------- */}
         <section className="mb-16">
           {ytLoading ? (
             <p className="text-center text-lg animate-pulse">Loading YouTube...</p>
@@ -212,14 +265,18 @@ const fetchXData = async () => {
                       key={video.id}
                       className="bg-white text-gray-900 rounded-2xl p-4 shadow-xl"
                     >
-                      <img
-                        src={video.thumbnail}
-                        alt="thumbnail"
-                        className="rounded-lg mb-3"
-                      />
+                      {video.thumbnail && (
+                        <img
+                          src={video.thumbnail}
+                          alt="thumbnail"
+                          className="rounded-lg mb-3"
+                        />
+                      )}
                       <p className="font-bold mb-2">{video.title}</p>
                       <small className="text-gray-500">
-                        {new Date(video.publishedAt).toLocaleString()}
+                        {video.publishedAt
+                          ? new Date(video.publishedAt).toLocaleString()
+                          : ''}
                       </small>
                     </div>
                   ))}
