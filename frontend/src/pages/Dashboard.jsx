@@ -24,6 +24,10 @@ export default function Dashboard() {
   const [tumblrLoading, setTumblrLoading] = useState(true);
   const [tumblrError, setTumblrError] = useState(null);
 
+  // NEW: date filter for Tumblr feed
+  const [tumblrDateFrom, setTumblrDateFrom] = useState('');
+  const [tumblrDateTo, setTumblrDateTo] = useState('');
+
   // -------- YouTube state --------
   const [ytUser, setYtUser] = useState(null);
   const [ytFeed, setYtFeed] = useState([]);
@@ -116,6 +120,28 @@ export default function Dashboard() {
   const handleLoginWithYouTube = () => {
     window.location.href = 'http://localhost:3000/auth/youtube/start';
   };
+
+
+  // Helper: apply date filter on Tumblr feed
+  const filteredTumblrFeed = tumblrFeed
+  // sort newest → oldest (just to be safe)
+  .slice()
+  .sort((a, b) => new Date(b.date) - new Date(a.date))
+  // filter by range
+  .filter((post) => {
+    if (!post.date) return false;
+    const d = new Date(post.date);
+
+    if (tumblrDateFrom && d < new Date(tumblrDateFrom)) return false;
+
+    // include the whole "to" day by adding end-of-day time
+    if (tumblrDateTo && d > new Date(tumblrDateTo + 'T23:59:59')) return false;
+
+    return true;
+  });
+
+
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 text-white">
@@ -211,9 +237,42 @@ export default function Dashboard() {
 
               {/* Dashboard feed */}
               <h3 className="text-2xl font-semibold mb-3">Your Tumblr Feed</h3>
-              {tumblrFeed.length > 0 ? (
+
+              {/* Date filter controls */}
+              <div className="flex flex-wrap justify-center gap-4 mb-4">
+                <div className="flex flex-col items-start">
+                  <label className="text-sm mb-1">From date</label>
+                  <input
+                    type="date"
+                    value={tumblrDateFrom}
+                    onChange={(e) => setTumblrDateFrom(e.target.value)}
+                    className="text-gray-900 rounded px-2 py-1"
+                  />
+                </div>
+                <div className="flex flex-col items-start">
+                  <label className="text-sm mb-1">To date</label>
+                  <input
+                    type="date"
+                    value={tumblrDateTo}
+                    onChange={(e) => setTumblrDateTo(e.target.value)}
+                    className="text-gray-900 rounded px-2 py-1"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTumblrDateFrom('');
+                    setTumblrDateTo('');
+                  }}
+                  className="bg-white text-purple-700 font-semibold px-3 py-1 rounded-full shadow"
+                >
+                  Clear
+                </button>
+              </div>
+
+              {filteredTumblrFeed.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {tumblrFeed.map((post) => (
+                  {filteredTumblrFeed.map((post) => (
                     <div
                       key={post.id}
                       className="bg-white text-gray-900 p-4 rounded-2xl shadow-xl"
@@ -232,7 +291,7 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <p className="text-center text-gray-200">
-                  No Tumblr feed items to display.
+                  No Tumblr feed items to display for this date range.
                 </p>
               )}
             </>
@@ -242,6 +301,7 @@ export default function Dashboard() {
             </p>
           )}
         </section>
+
 
         {/* -------- YouTube Section -------- */}
         <section className="mb-16">
