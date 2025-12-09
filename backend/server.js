@@ -232,7 +232,6 @@ app.get('/api/x/posts', async (req, res) => {
 
 
 
-
 const OAuth = require('oauth').OAuth;
 const tumblr = require('tumblr.js');
 
@@ -354,4 +353,121 @@ app.get('/api/tumblr/posts', async (req, res) => {
 // ---- start server ----
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
+});
+
+
+//YouTube OAuth Helper Variables
+const ytPendingAuth = {}; // state -> { codeVerifier }
+let ytTokens = null;      // final tokens
+
+// start YouTube OAuth 2.0 PKCE flow
+app.get('/auth/youtube/start', (req, res) => {
+  const state = crypto.randomBytes(16).toString('hex');
+  const codeVerifier = createCodeVerifier();
+  const codeChallenge = createCodeChallenge(codeVerifier);
+
+  ytPendingAuth[state] = { codeVerifier };
+
+  const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authUrl.searchParams.set('client_id', process.env.YOUTUBE_CLIENT_ID);
+  authUrl.searchParams.set('redirect_uri', process.env.YOUTUBE_REDIRECT_URI);
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('scope', process.env.YOUTUBE_SCOPES);
+  authUrl.searchParams.set('state', state);
+  authUrl.searchParams.set('code_challenge_method', 'S256');
+  authUrl.searchParams.set('code_challenge', codeChallenge);
+  authUrl.searchParams.set('access_type', 'offline'); // refresh token
+
+  res.redirect(authUrl.toString());
+});
+
+// YouTube OAuth callback
+app.get('/auth/youtube/callback', async (req, res) => {
+  const { code, state } = req.query;
+
+  if (!code || !state) return res.status(400).send("Missing code or state");
+
+  const saved = ytPendingAuth[state];
+  if (!saved) return res.status(400).send("Unknown or expired state");
+
+  delete ytPendingAuth[state];
+
+  try {
+    const body = new URLSearchParams({
+      client_id: process.env.YOUTUBE_CLIENT_ID,
+      client_secret: process.env.YOUTUBE_CLIENT_SECRET,
+      code: code.toString(),
+      grant_type: 'authorization_code',
+      redirect_uri: process.env.YOUTUBE_REDIRECT_URI,
+      code_verifier: saved.codeVerifier
+    });
+
+    const tokenResp = await axios.post(
+      'https://oauth2.googleapis.com/token',
+      body.toString(),
+      {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" }
+      }
+    );
+
+    ytTokens = tokenResp.data;
+
+    res.send(`
+      <h2>YouTube Login Successful 🎉</h2>
+      <p>You can now call <code>/api/youtube/feed</code></p>
+    `);
+
+  } catch (err) {
+    console.error("YT token error:", err.response?.data || err.message);
+    res.status(500).send("Error retrieving YouTube tokens");
+  }
+});
+
+// Get YouTube subscriptions feed
+
+//step 1: Get the list of channels the user is subscribed to
+async function getSubscriptions(accessToken) {
+  const resp = await axios.get(
+    'https://www.googleapis.com/youtube/v3/subscriptions',
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      params: {
+        part: 'snippet',
+        mine: true,
+        maxResults: 20
+      }
+    }
+  );
+
+  return resp.data.items.map(i => ({
+    channelId: i.snippet.resourceId.channelId,
+    channelTitle: i.snippet.title
+  }));
+}
+
+// step 2: For each channel, get their latest videos
+app.get('/api/youtube/feed', async (req, res) => {
+  if (!ytTokens?.access_token)
+    return res.status(401).json({ error: "Not logged into YouTube" });
+
+  try {
+    const subs = await getSubscriptions(ytTokens.access_token);
+
+    let feed = [];
+
+    for (const sub of subs) {
+      const videos = await getLatestVideos(sub.channelId, ytTokens.access_token);
+      feed.push({
+        channel: sub.channelTitle,
+        channelId: sub.channelId,
+        videos
+      });
+    }
+
+    res.json(feed);
+
+  } catch (err) {
+    console.error("YT feed error:", err.response?.data || err.message);
+    res.status(500).json({ error: "Error loading YouTube feed" });
+  }
 });
